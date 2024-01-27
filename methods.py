@@ -17,11 +17,25 @@ def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,S
     https://github.com/sreeganb/davidson_algorithm/
 
     '''
+    residuals=[]
+    A_orginal=A
     start_time = time.time()
     A=A-Sigma
+    # if not calc_min and use_inverse:
+    #     logger.warning('Ignoring use_inverse. Use_inverse is an option when calc_min is set to True.')
     if calc_min: 
-        # A_orginal=A
-        A=np.linalg.pinv(A)
+        if use_inverse:
+            try :
+                A=np.linalg.inv(A)
+            except np.linalg.LinAlgError as exc:
+                logger.exception(exc)
+                logger.warning("Matrix is Singuar.Trying to use Psudo inverse of A. Also you can turn off use_inverse flag for using lu_factor and lu_solver to solve the linear system. ")
+                A=np.linalg.pinv(A)
+        else:
+            LU,piv=lu_factor(A)
+            
+
+            
 
     n=A.shape[0]
     # Build a random trial vector
@@ -29,47 +43,55 @@ def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,S
     j=0
     norm_mat=np.zeros(2)
     while j<maxiter:
-        if use_rayleigh:
+        if calc_min and not use_inverse:
+            C=lu_solve((LU,piv),B)
+            idx=np.argmax(np.abs(C))
+
+        elif use_rayleigh:
             rcoeff = np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
             rmat = rcoeff*np.eye(n)
-            C = np.dot(np.linalg.inv(A-rcoeff),B)
+
+            C =  np.dot(A-rcoeff,B)  if calc_min and use_inverse else np.dot(np.linalg.inv(A-rcoeff),B)
         else:
             C = np.dot(A,B)
-        norm_c = np.linalg.norm(C)
+
+        
+        norm_c = C[idx] if ( not use_inverse and calc_min) else np.linalg.norm(C) 
         B = C/(norm_c)
         j=j+1
         # print(j)
         if j==1: 
-            print ('just the first iteration, give me a break')
+            logger.trace('just the first iteration, give me a break')
             norm_mat[0]=norm_c
         else: 
             norm_mat[1] = norm_mat[0]
             norm_mat[0] = norm_c
             diff = abs(norm_mat[1] - norm_mat[0])
+            residuals.append(diff)
             if diff < tol:
-                print ('power iteration converged at iteration number:', j)
+                logger.info('Power iteration converged at iteration number = '+ str(j))
                 break
             else:
                 continue
 
-    approx = np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
-    if calc_min: approx=1./approx
+    approx = 1/norm_c if (calc_min and not use_inverse) else np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
+    if calc_min and use_inverse: approx=1./approx
     approx += Sigma
     end_time = time.time() 
-    print ('power iteration dominant eigenvalue=', approx)
-    print ('Power itration time:',end_time-start_time)
+    logger.success('Power iteration = '+ str(approx)+'; time = '+str(end_time-start_time)+ " seconds.")
 
 
-    w, v = np.linalg.eig(A)
+
+    w, v = np.linalg.eig(A_orginal)
     w=np.sort(w)
-    diff = 1./w[-1] - approx
-    print ('exact dominant eigenvalue=',1./w[-1] if calc_min else w[-1])
-    print ('difference:', diff)
+    diff = (w[0] if calc_min else w[-1])- approx
+    logger.trace('exact eigenvalue='+(str(w[0]) if calc_min else str(w[-1])))
+    logger.trace('Residual = '+ str(diff))
 
-    return approx
+    return approx,B,residuals
 
 
-def davidson(A,v0=None,tol=1e-10,maxiter=1000):
+def davidson_1(A,v0=None,tol=1e-10,maxiter=1000):
     '''
     The Davidson's algorithm.
     
@@ -176,11 +198,11 @@ def davidson_2(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
 
     # End of block Davidson. Print results.
 
-    print("davidson = ", theta[:eig],";",
-        end_davidson - start_davidson, "seconds")
-    return theta[:eig], s[:eig]
+    logger.success("davidson_2 = "+ str(theta[:n_eigen])+"; time = "+
+       str(end_davidson - start_davidson)+" seconds.")
+    return theta[:n_eigen], s[:n_eigen],residuals
 
-def davidson_3(A,k=None,neig=1,tol=1e-10,mmax=1000):
+def davidson_3(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
     '''
     The Block Davidson method ca be used to solve for a number of the lowest or highest few Eigenvalues of a symmetric matrix.
     https://github.com/sreeganb/davidson_algorithm/
