@@ -99,15 +99,16 @@ def davidson(A,v0=None,tol=1e-10,maxiter=1000):
     #initialise projected matrix.
     G=v0.T.conj().dot(Av)
     for i in range(maxiter):
-        ei,vi=eigh(G)
+        ei,vi=np.linalg.eig(G)
         #compute largest Ritz value theta, and Ritz vector u.
         imax=np.argmax(ei)
         theta,u=ei[imax],V.dot(vi[:,imax:imax+1])
         #get the residual
         r=AV.dot(vi[:,imax:imax+1])-theta*u
         if norm(r)<tol:
-            return theta,u
-        print ('%s ||r|| = %s, e = %s'%(i,norm(r),theta))
+            break
+        
+        if(i%20==0):logger.trace(str(i)+' ||r|| = '+ str(norm(r))+', eigen value = '+str(theta))
         #compute the correction vector z
         z=-1./(DA_diag-theta)[:,np.newaxis]*r
         z=mt.mgs(z,V)
@@ -124,31 +125,38 @@ def davidson(A,v0=None,tol=1e-10,maxiter=1000):
 
        # End of block Davidson. Print results.
 
-    print("davidson = ", theta,";",
-        end_davidson - start_davidson, "seconds")
+    logger.success("davidson_1 = "+ str(theta)+"; time = "+
+        str(end_davidson - start_davidson)+ " seconds.")
     
 
     return theta,u
 
-def davidson_2(A,k=None,eig=1,tol=1e-10,mmax=1000):
-    
+def davidson_2(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
+    ''' Block Davidson, Joshua Goings (2013)
+
+    Block Davidson method for finding the first few
+	lowest eigenvalues of a large, diagonally dominant,
+    sparse Hermitian matrix (e.g. Hamiltonian)
+'''
     n=A.shape[0]
-    if k is None:k=2*eig
+    maxiter = n//2				# Maximum number of iterations	
+
+    if k is None:k=2*n_eigen
     t = np.eye(n,k)			# set of k unit vectors as guess
     V = np.zeros((n,n))		# array of zeros to hold guess vec
     I = np.eye(n)			# identity matrix same dimen as A
-
+    residuals=[]
     # Begin block Davidson routine
 
     start_davidson = time.time()
 
-    for m in range(k,mmax,k):
+    for m in range(k,maxiter,k):
         if m <= k:
             for j in range(0,k):
                 V[:,j] = t[:,j]/np.linalg.norm(t[:,j])
             theta_old = 1 
         elif m > k:
-            theta_old = theta[:eig]
+            theta_old = theta[:n_eigen]
         V[:,:m],R = np.linalg.qr(V[:,:m])
         T = np.dot(V[:,:m].T,np.dot(A,V[:,:m]))
         THETA,S = np.linalg.eig(T)
@@ -159,7 +167,8 @@ def davidson_2(A,k=None,eig=1,tol=1e-10,mmax=1000):
             w = np.dot((A - theta[j]*I),np.dot(V[:,:m],s[:,j]))
             q = w/(theta[j]-A[j,j])
             V[:,(m+j)] = q
-        norm = np.linalg.norm(theta[:eig] - theta_old)
+        norm = np.linalg.norm(theta[:n_eigen] - theta_old)
+        residuals.append(norm)
         if norm < tol:
             break
 
@@ -186,22 +195,23 @@ def davidson_3(A,k=None,neig=1,tol=1e-10,mmax=1000):
 
     n=A.shape[0]
     # Setup the subspace trial vectors
-    if k is None:k=2*neig
-    print ('No. of start vectors:',k)
-    print ('No. of desired Eigenvalues:',neig)
+    if k is None:k=2*n_eigen
+    # logger.trace('No. of start vectors:'+str(k))
+    # logger.trace('No. of desired Eigenvalues:'+str(n_eigen))
     t = np.eye(n,k) # initial trial vectors
     v = np.zeros((n,n)) # holder for trial vectors as iterations progress
     I = np.eye(n) # n*n identity matrix
     ritz = np.zeros((n,n))
     f = np.zeros((n,n))
+    residuals=[]
     #-------------------------------------------------------------------------------
     # Begin iterations  
     #-------------------------------------------------------------------------------
     start = time.time()
     iter = 0
-    for m in range(k,mmax,k):
+    for m in range(k,maxiter,k):
         iter = iter + 1
-        print ("Iteration no:", iter)
+        # logger.trace("Iteration no:"+ str(iter))
         if iter==1:  # for first iteration add normalized guess vectors to matrix v
             for l in range(m):
                 v[:,l] = t[:,l]/(np.linalg.norm(t[:,l]))
@@ -217,7 +227,7 @@ def davidson_3(A,k=None,neig=1,tol=1e-10,mmax=1000):
         #***************************************************************************
         for i in range(m): #for each new eigenvector of T
             f = np.diag(1./ np.diag((np.diag(np.diag(A)) - w[i]*I)))
-    #        print (f)
+    #        logger.trace(f)
             ritz[:,i] = np.dot(f,np.linalg.multi_dot([(A-w[i]*I),v[:,:m],vects[:,i]]))
             if np.linalg.norm(ritz[:,i]) > 1e-7 :
                 ritz[:,i] = ritz[:,i]/(np.linalg.norm(ritz[:,i]))
@@ -226,32 +236,33 @@ def davidson_3(A,k=None,neig=1,tol=1e-10,mmax=1000):
         q, r = np.linalg.qr(v[:,:m+j-1])
         for kk in range(m+j-1):
             v[:,kk] = q[:,kk]
-        for i in range(neig):
-            print (ss[i])
+        # for i in range(n_eigen):
+        #     logger.trace(ss[i])
         if iter==1: 
-            check_old = ss[:neig]
+            check_old = ss[:n_eigen]
             check_new = 1
         elif iter==2:
-            check_new = ss[:neig]
+            check_new = ss[:n_eigen]
         else: 
             check_old = check_new
-            check_new = ss[:neig]
+            check_new = ss[:n_eigen]
         check = np.linalg.norm(check_new - check_old)
+        residuals.append(check)
         if check < tol:
-            print('Block Davidson converged at iteration no.:',iter)
+            logger.info('Block Davidson converged at iteration number = '+str(iter))
             break
     end = time.time()
-    print("davidson = ", ss[:neig],";")
-    print ('Block Davidson time:',end-start)
-    return ss[:neig]
+    logger.success("davidson_3 = "+ str(ss[:n_eigen])+"; time = "+str(end-start)+" seconds.")
+
+    return ss[:n_eigen],v[:n_eigen],residuals
 
 
-def get_initial_guess(A,neigen):
+def get_initial_guess(A,n_eigen):
     nrows, ncols = A.shape
     d = np.diag(A)
     index = np.argsort(d)
-    guess = np.zeros((nrows,neigen))
-    for i in range(neigen):
+    guess = np.zeros((nrows,n_eigen))
+    for i in range(n_eigen):
         guess[index[i],i] = 1
     
     return guess
