@@ -3,15 +3,137 @@ import matrix_tools as mt
 import time
 
 from scipy import sparse as sps
-from scipy.linalg import eigh,inv
+from scipy.linalg import eigh,inv,lu_factor,lu_solve
 from scipy.linalg.lapack import dsyev
 from numpy.linalg import norm
 from scipy.sparse import linalg as lin
 from scipy.sparse.linalg import inv as spinv
 import pdb,time,warnings
-import jd
 
-def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,Sigma=0):
+#logging
+import datetime
+from loguru import logger
+import sys        # <!- add this line
+logger.remove()             # <- add this line
+logger.add(sys.stdout, level="INFO")   # <- add this line
+log_format = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS zz}</green> | <level>{level: <8}</level> | <yellow>Line {line: >4} ({file}):</yellow> <b>{message}</b>"
+log_path=".\logs\log-"+str(datetime.datetime.now()).replace(" ","-").replace(".","-").replace(":","-")+".log"
+logger.add(log_path, level="TRACE", format=log_format, colorize=False, backtrace=True, diagnose=True)
+
+def block_power_method(A, k, tol=1e-6, max_iter=100):
+    # A is a symmetric matrix
+    # k is the number of smallest eigenvalues and eigenvectors to find
+    # tol is the tolerance for convergence
+    # max_iter is the maximum number of iterations
+    
+    # Get the dimension of A
+    n = A.shape[0]
+    
+    # Check if k is valid
+    if k < 1 or k > n:
+        print("Invalid value of k")
+        return None
+    start_time=time.time()
+    # Initialize a random matrix Q of size n x k
+    Q = np.random.rand(n, k)
+    
+    # Orthonormalize Q using QR decomposition
+    Q, _ = np.linalg.qr(Q)
+    
+    # Initialize a variable to store the eigenvalues
+    lambdas = np.zeros(k)
+    
+    # Initialize a counter for iterations
+    iter = 0
+    
+    # Loop until convergence or maximum iterations
+    while iter < max_iter:
+        # Perform the matrix multiplication AQ
+        Z = A @ Q
+        
+        # Solve the linear system Q^T Z = Q^T A Q = Lambda
+        # Lambda is a diagonal matrix of eigenvalues
+        # We can use np.linalg.solve to find Lambda
+        Lambda = np.linalg.solve(Q.T, Z.T).T
+        
+        # Extract the diagonal elements of Lambda
+        lambdas_new = np.diag(Lambda)
+        
+        # Check the relative change of eigenvalues
+        if np.linalg.norm(lambdas - lambdas_new) < tol:
+            # Converged
+            break
+        
+        # Update the eigenvalues
+        lambdas = lambdas_new
+        
+        # Orthonormalize Z using QR decomposition
+        Q, _ = np.linalg.qr(Z)
+        
+        # Increment the iteration counter
+        iter += 1
+
+    end_time=time.time()
+    logger.success("Block Power method  = "+ str(lambdas)+"; time = "+str(end_time-start_time)+" seconds.")
+
+    # Return the eigenvalues and eigenvectors
+    return lambdas, Q
+
+def subspace_iteration(A, k=1, Y0=None, maxiter=100):
+    start_time=time.time()
+    n=A.shape[0]
+
+    if Y0 is None:
+        Y0 = np.random.random((n, k))
+
+    Y0, _ = np.linalg.qr(Y0)
+    Y = Y0.copy()
+    Y_old = Y0.copy()
+    err = []
+    for i in range(maxiter):
+        B = A.dot(Y)
+        Y, E = np.linalg.qr(B)
+        err.append(np.linalg.norm(Y_old - Y.dot(Y.T.dot(Y_old))))
+        Y_old = Y.copy()
+        end_time=time.time()
+
+    # approx = np.dot(Y.T,np.dot(A,Y))/np.linalg.norm(Y)
+
+    logger.success("Subspace iteration = "+ str(np.diag(E))+"; time = "+str(end_time-start_time)+" seconds.")
+
+    return Y, B, err
+
+def subspace_iteration_2(A, k=1, V0=None, maxiter=1000,tol=1e-4):
+    start_time=time.time()
+    n=A.shape[0]
+
+    if V0 is None:
+        V0 = np.random.random((n, k))
+
+    V=V0
+    residuals = []
+    err=100
+    i=0
+    while err>tol:
+        B = A.dot(V)
+        Q, R = np.linalg.qr(B)
+        V=Q[:, :k]
+        E=R[:k, :]
+        err=np.linalg.norm(A.dot(V)-V.dot(E))
+        residuals.append(err)
+        i+=1
+        if(err<tol): 
+            logger.info('Subspace_2 converged at iteration number = '+ str(i))
+            break
+
+    end_time=time.time()
+
+
+    logger.success("Subspace iteration_2 = "+ str(np.diag(E))+"; time = "+str(end_time-start_time)+" seconds.")
+
+    return E, V, residuals
+
+def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,use_inverse=True,Sigma=0):
     '''
     Power iteration is used to find the highest eigenvalue one at a time.
     https://github.com/sreeganb/davidson_algorithm/
