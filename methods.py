@@ -533,26 +533,55 @@ def numpy_eigen(A,l,u):
 
     # End of Numpy diagonalization. Print results.
 
-    print("numpy = ", E[l:u],";",
-        end_numpy - start_numpy, "seconds")
+    logger.success("numpy = "+ str(E[l:u])+"; time = "+
+       str(end_numpy - start_numpy) + " seconds")
     return E[l:u],Vec[l:u]
     
 def main():
+
     # A=mt.random_sparse(1600,1e-3)
-    A=mt.digaonal_dominant(1600,1e-3)
+    A=mt.digaonal_dominant(100,1e-3)
+    # A=mt.diagonal_clustered(1600)
+    # numpy_eigen(A,96,100)
+
+    # A=np.array([[0,2],[2,3]])
     # B=mt.symmetric_sparse(1000)
     # jd.davidson_Basic(A)
-    # davidson_4(A,maxiter=200,tol=1e-5,neigen=4)
-    # davidson_4(A,maxiter=200,tol=1e-5,neigen=4,jacobi=True)
+    # davidson_1(A,maxiter=200,tol=1e-5)
 
+    # davidson_2(A,maxiter=8,k=2,tol=1e-5,n_eigen=1)
+    # davidson_3(A,maxiter=4,tol=1e-5,n_eigen=1)
+    # davidson_4(A,maxiter=4,tol=1e-5,n_eigen=1)
+    # block_power_method(A,4)
+    # subspace_iteration_2(A,4)
+    # subspace_iteration(A,4)
+    
+    # power_iteration(A,maxiter=8,tol=1e-5, calc_min=True)
+    # power_iteration(A,maxiter=8,tol=1e-5, calc_min=False)
+    
+    numpy_eigen(A,99,100)
+    power_iteration(A)
+    # power_iteration(A,use_inverse=False)
+    power_iteration(A,use_rayleigh=True, maxiter=400)
+    # power_iteration(A,use_inverse=False,use_rayleigh=True)
+
+    # davidson_4(A,maxiter=200,tol=1e-5,n_eigen=4,jacobi=True)
+    # davidson_1(A)
     # davidson_2(A)
-    # davidson_3(A,mmax=20,tol=1e-9)
-    # davidson_2(A,mmax=20,tol=1e-9)
-    a=power_iteration(A,calc_min=True)
-    print(a)
-    power_iteration(A,a,calc_min=True)
-    numpy_eigen(A,0,1)
-    # davidson_2(A,k=16,eig=8)
+
+    # davidson_2(A,maxiter=20,tol=1e-9)
+    # min=power_iteration(A,calc_min=True)
+    # max=power_iteration(A)
+    # print(max,min)
+    # power_iteration(A,1./max,calc_min=True)
+
+
+    # numpy_eigen(A,0,1)
+    # power_iteration(A,calc_min=True)
+    # power_iteration(A,calc_min=True,use_inverse=False)
+    # power_iteration(A,calc_min=True,use_rayleigh=True, maxiter=400)
+    # power_iteration(A,calc_min=True,use_inverse=False,use_rayleigh=True)
+
 
 
 
