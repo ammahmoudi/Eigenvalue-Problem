@@ -262,13 +262,13 @@ def jacobi_correction(uj,A,thetaj):
 
     w = np.dot(Pj,np.dot((A-thetaj*I),Pj))
     return np.linalg.solve(w,rj)
-def davidson_4(A, neigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitian=False,hamiltonian=False):
+def davidson_4(A, n_eigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitian=False,hamiltonian=False):
     """Davidosn solver for eigenvalue problem
     https://github.com/NLESC-JCER/DavidsonPython/tree/master
 
     Args :
         A (numpy matrix) : the matrix to diagonalize
-        neigen (int)     : the number of eigenvalue requied
+        n_eigen (int)     : the number of eigenvalue requied
         tol (float)      : the rpecision required
         maxiter (int)    : the maximum number of iteration
         jacobi (bool)    : do the jacobi correction
@@ -277,27 +277,28 @@ def davidson_4(A, neigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitian
         eigenvectors (numpy.array) : eigenvectors
     """
     n = A.shape[0]
-    k = 2*neigen            # number of initial guess vectors 
+    k = 2*n_eigen            # number of initial guess vectors 
     V = np.eye(n,k)         # set of k unit vectors as guess
     I = np.eye(n)           # identity matrix same dimen as A
     Adiag = np.diag(A)
+    residuals=[]
     start_davidson = time.time()
 
     V = get_initial_guess(A,k)
     
-    print('\n'+'='*20)
-    print("= Davidson Solver ")
-    print('='*20)
+    # print('\n'+'='*20)
+    # logger.trace("= Davidson Solver ")
+    # print('='*20)
 
     #invA = np.linalg.inv(A)
     #inv_approx_0 = 2*I - A
     #invA2 = np.dot(invA,invA)
     #invA3 = np.dot(invA2,invA)
 
-    norm = np.zeros(k if hamiltonian else neigen)
+    norm = np.zeros(k if hamiltonian else n_eigen)
 
     # Begin block Davidson routine
-    print("iter size norm (%e)" %tol)
+    # logger.trace("iter size norm"+str(tol))
     for i in range(maxiter):
     
         # QR of V t oorthonormalize the V matrix
@@ -314,7 +315,7 @@ def davidson_4(A, neigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitian
         theta,s = np.linalg.eigh(T)
 
         if hamiltonian or non_hermitian:
-            print(np.diag(T))
+            # print(np.diag(T))
             # organize the eigenpairs
             index = np.argsort(theta.real)
             theta  = theta[index]
@@ -328,7 +329,7 @@ def davidson_4(A, neigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitian
         if hamiltonian:
             ind0 = np.where(theta>0, theta, np.inf).argmin()
         
-        for _j in range(k if hamiltonian else neigen):
+        for _j in range(k if hamiltonian else n_eigen):
             j = ind0+_j-int(0.25*k) if hamiltonian else +_j
 
             # residue vetor
@@ -349,16 +350,17 @@ def davidson_4(A, neigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitian
             V = np.hstack((V,delta.reshape(-1,1)))
 
         # comute the norm to se if eigenvalue converge
-        print(" %03d %03d %e" %(i,V.shape[1],np.max(norm)))
+        # logger.trace(str(i)+" "+str(V.shape[1])+" "+ str(np.max(norm)))
+        residuals.append(np.max(norm))
         if np.all(norm < tol):
-            print("= Davidson has converged")
+            logger.info("Davidson_4 has converged in iteration number = "+str(i))
             break
     end_davidson = time.time()
     if not hamiltonian: ind0=0
-    print("davidson = ", theta[ind0:neigen+ind0],";")
-    print ('Davidson time:',end_davidson-start_davidson)
+    logger.success("davidson_4 = "+ str(theta[ind0:n_eigen+ind0])+"; time = "+str(end_davidson-start_davidson)+" seconds.")
 
-    return theta[ind0:ind0+neigen], q[:,ind0:ind0+neigen]
+
+    return theta[ind0:ind0+n_eigen], q[:,ind0:ind0+n_eigen],residuals
     
 
 def numpy_eigen(A,l,u):
