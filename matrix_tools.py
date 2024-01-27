@@ -1,4 +1,14 @@
 import numpy as np
+
+
+def digaonal_well_seperated(n):
+    A = np.diag(1./(1. + np.arange(n))) # diagonal matrix with well-separated maximum eigenvalues
+    return A
+
+def diagonal_clustered(n):
+    A_clustered = np.diag(1 - 1./(1. + np.arange(n))) # diagonal matrix with clustered maximum eigenvalues
+    return A_clustered
+
 def digaonal_dominant(n,sparsity=1E-4):
     '''
     Create a diagonal-dominant mtrix with size n
