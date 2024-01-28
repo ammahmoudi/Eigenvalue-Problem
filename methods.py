@@ -646,7 +646,7 @@ def numpy_eigen(A,l,u):
 
     logger.success("numpy = "+ str(E[l:u])+"; time = "+
        str(end_numpy - start_numpy) + " seconds")
-    return E[l:u],Vec[l:u]
+    return E[l:u],Vec[l:u],np.zeros((A.shape[0], abs(l-u)))
     
 def main():
 
