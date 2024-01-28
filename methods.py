@@ -1,4 +1,8 @@
+from matplotlib.pylab import LinAlgError
+from matplotlib.widgets import EllipseSelector
 import numpy as np
+from scipy import linalg
+from sympy import use
 import matrix_tools as mt
 import time
 
@@ -6,6 +10,7 @@ from scipy import sparse as sps
 from scipy.linalg import eigh,inv,lu_factor,lu_solve
 from scipy.linalg.lapack import dsyev
 from numpy.linalg import norm
+import scipy.linalg as la
 from scipy.sparse import linalg as lin
 from scipy.sparse.linalg import inv as spinv
 import pdb,time,warnings
@@ -34,7 +39,7 @@ def block_power_method(A, k, tol=1e-6, max_iter=100):
         print("Invalid value of k")
         return None
     start_time=time.time()
-    # Initialize a random matrix Q of size n x k
+    # Initialize a random matrix Q of size n B k
     Q = np.random.rand(n, k)
     
     # Orthonormalize Q using QR decomposition
@@ -133,52 +138,160 @@ def subspace_iteration_2(A, k=1, V0=None, maxiter=1000,tol=1e-4):
 
     return E, V, residuals
 
-def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,use_inverse=True,Sigma=0):
+def rayleigh_quotient_iteration(A, epsilon=1e-10, rcoeff=0, B=None):
+    n=A.shape[0]
+    residuals=[]
+
+    if B is None:
+        B=np.random.rand(n)
+    B = B / la.norm(B)
+    
+    # the solve function in scipy.linalg solves a linear system
+    start_time=time.time()
+    try:
+        C = la.solve(A - rcoeff * np.eye(n), B)
+
+    except la.LinAlgError as exc:
+        # logger.exception(exc)
+        logger.warning("la.solve failed. Trying to use la_factor and la_solve.")
+        try:
+            LU, piv = lu_factor(A - rcoeff * np.eye(n))
+            C=lu_solve((LU,piv),B)
+        except np.linalg.LinAlgError as exc:
+            # logger.exception(exc)
+            logger.warning("lu_solve and lu_factor failed. please try use_inverse")
+            raise exc
+
+
+
+    lambda_ = C.T @ B
+    rcoeff = rcoeff + 1 / lambda_
+    err = la.norm(C - lambda_ * B) / la.norm(C)
+    residuals.append(err)
+    j=0
+    while err > epsilon:
+        j+=1
+        B = C / la.norm(C)
+        try:
+            C = la.solve(A - rcoeff * np.eye(n), B)
+
+        except la.LinAlgError as exc:
+            # logger.exception(exc)
+            logger.warning("la.solve failed. Trying to use la_factor and la_solve.")
+            try:
+                LU, piv = lu_factor(A - rcoeff * np.eye(n))
+                C=lu_solve((LU,piv),B)
+            except np.linalg.LinAlgError as exc:
+                # logger.exception(exc)
+                logger.warning("lu_solve and lu_factor failed. please try use_inverse")
+                raise exc
+        lambda_ = C.T @ B
+        rcoeff = rcoeff + 1 / lambda_
+        err = la.norm(C - lambda_ * B) / la.norm(C)
+    
+    logger.info('Power iteration converged at iteration number = '+ str(j))
+    # approx=np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
+    end_time=time.time()
+
+    # logger.success(' Reigh iteration '+ str(approx)+'; time = '+str(end_time-start_time)+ " seconds.")
+    logger.success(' Reigh iteration '+ str(rcoeff)+'; time = '+str(end_time-start_time)+ " seconds.")
+
+    return rcoeff,B,residuals
+
+def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,use_inverse=True,Sigma=0,norm_c_mode='2'):
     '''
     Power iteration is used to find the highest eigenvalue one at a time.
     https://github.com/sreeganb/davidson_algorithm/
 
     '''
+    # if(use_rayleigh and not calc_min):
+    #     logger.warning('use_rayleigh is True. calc_min changed to True. output is the smallest eigen value!')
+    #     calc_min=True
+    # if(use_rayleigh and not calc_min):
+    #     logger.warning('calc_min is False. use_rayleigh ignored!')
+    #     use_rayleigh=False
+
+    if calc_min:
+        method_name='Inverse iteration: use_inverse = {}, use_rayleigh = {}, norm_c_mode = {}'.format(use_inverse, use_rayleigh, norm_c_mode)
+    else:
+        method_name='Power iteration: use_inverse = {}, use_rayleigh = {}, norm_c_mode = {}'.format(use_inverse, use_rayleigh, norm_c_mode)
+    n=A.shape[0]
     residuals=[]
-    A_orginal=A
+    A_orginal=A.copy()
     start_time = time.time()
-    A=A-Sigma
+    A_Sigma=A_orginal-Sigma*np.eye(n)
+    A=A_Sigma.copy()
     # if not calc_min and use_inverse:
     #     logger.warning('Ignoring use_inverse. Use_inverse is an option when calc_min is set to True.')
+
     if calc_min: 
         if use_inverse:
             try :
                 A=np.linalg.inv(A)
             except np.linalg.LinAlgError as exc:
-                logger.exception(exc)
-                logger.warning("Matrix is Singuar.Trying to use Psudo inverse of A. Also you can turn off use_inverse flag for using lu_factor and lu_solver to solve the linear system. ")
+                # logger.exception(exc)
+                logger.warning("Matrix is singuar. Trying to use psudo inverse of A. Also you can turn off use_inverse flag for using lu_factor and lu_solver to solve the linear system. ")
                 A=np.linalg.pinv(A)
         else:
-            LU,piv=lu_factor(A)
+            if not use_rayleigh:
+                
+                     LU,piv=lu_factor(A)
+    else:
+        if use_rayleigh:
+            logger.warning('calc_min is off. use_rayleigh is ignored.')
+            
             
 
-            
-
-    n=A.shape[0]
+                
     # Build a random trial vector
     B=np.random.rand(n)
+    B=B/la.norm(B)
     j=0
+    rcoeff=0
     norm_mat=np.zeros(2)
     while j<maxiter:
-        if calc_min and not use_inverse:
-            C=lu_solve((LU,piv),B)
-            idx=np.argmax(np.abs(C))
+        if calc_min:
+            if use_rayleigh:
+                 
+                rcoeff = np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
+            if not use_inverse:
+                if use_rayleigh:
+                    
+                    try:
+                        C=la.solve(A_Sigma-rcoeff*np.eye(n),B)
 
-        elif use_rayleigh:
-            rcoeff = np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
-            rmat = rcoeff*np.eye(n)
+                    except la.LinAlgError as exc:
+                        # logger.exception(exc)
+                        logger.warning("la.solve failed. Trying to use la_factor and la_solve.")
+                        try:
+                            LU, piv = lu_factor(A_Sigma-rcoeff*np.eye(n))
+                            C=lu_solve((LU,piv),B)
+                        except np.linalg.LinAlgError as exc:
+                            # logger.exception(exc)
+                            logger.warning("lu_solve and lu_factor failed. please try use_inverse")
+                            raise exc
 
-            C =  np.dot(A-rcoeff,B)  if calc_min and use_inverse else np.dot(np.linalg.inv(A-rcoeff),B)
+                
+                else:    
+                    C=lu_solve((LU,piv),B)
+                idx=np.argmax(np.abs(C))
+            else:
+                if use_rayleigh:
+                    A_new=A_Sigma-rcoeff*np.eye(n)
+                    try :
+                        A_new=np.linalg.inv(A_new)
+                    except np.linalg.LinAlgError as exc:
+                        
+                        # logger.exception(exc)
+                        logger.warning("Matrix is singuar. Trying to use psudo inverse of A_new. Also you can turn off use_inverse flag for using lu_factor and lu_solver to solve the linear system. ")
+                        A_new=np.linalg.pinv(A_new)
+
+                C =  np.dot(A_new,B)  if use_rayleigh else np.dot(A,B)
         else:
             C = np.dot(A,B)
 
         
-        norm_c = C[idx] if ( not use_inverse and calc_min) else np.linalg.norm(C) 
+        norm_c = C[idx] if ( not use_inverse and calc_min and norm_c_mode=='max_abs') else np.linalg.norm(C) 
         B = C/(norm_c)
         j=j+1
         # print(j)
@@ -188,7 +301,10 @@ def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,u
         else: 
             norm_mat[1] = norm_mat[0]
             norm_mat[0] = norm_c
-            diff = abs(norm_mat[1] - norm_mat[0])
+            if( calc_min and use_rayleigh and not use_inverse):
+                diff=la.norm(C-(C.T@B)*B)
+            else:
+                diff = abs(norm_mat[1] - norm_mat[0])
             residuals.append(diff)
             if diff < tol:
                 logger.info('Power iteration converged at iteration number = '+ str(j))
@@ -196,11 +312,12 @@ def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,u
             else:
                 continue
 
-    approx = 1/norm_c if (calc_min and not use_inverse) else np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
+    approx = 1/norm_c if (calc_min and not use_inverse and norm_c_mode=='max_abs') else np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
     if calc_min and use_inverse: approx=1./approx
     approx += Sigma
-    end_time = time.time() 
-    logger.success('Power iteration = '+ str(approx)+'; time = '+str(end_time-start_time)+ " seconds.")
+    end_time = time.time()
+ 
+    logger.success(method_name+' = '+ str(approx)+'; time = '+str(end_time-start_time)+ " seconds.")
 
 
 
@@ -274,7 +391,6 @@ def davidson_1(A,v0=None,tol=1e-10,maxiter=1000):
     
 
     return theta,u
-
 def davidson_2(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
     ''' Block Davidson, Joshua Goings (2013)
 
@@ -323,7 +439,6 @@ def davidson_2(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
     logger.success("davidson_2 = "+ str(theta[:n_eigen])+"; time = "+
        str(end_davidson - start_davidson)+" seconds.")
     return theta[:n_eigen], s[:n_eigen],residuals
-
 def davidson_3(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
     '''
     The Block Davidson method ca be used to solve for a number of the lowest or highest few Eigenvalues of a symmetric matrix.
@@ -399,8 +514,6 @@ def davidson_3(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
     logger.success("davidson_3 = "+ str(ss[:n_eigen])+"; time = "+str(end-start)+" seconds.")
 
     return ss[:n_eigen],v[:n_eigen],residuals
-
-
 def get_initial_guess(A,n_eigen):
     nrows, ncols = A.shape
     d = np.diag(A)
@@ -516,8 +629,6 @@ def davidson_4(A, n_eigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitia
 
 
     return theta[ind0:ind0+n_eigen], q[:,ind0:ind0+n_eigen],residuals
-    
-
 def numpy_eigen(A,l,u):
       # Begin Numpy diagonalization of A
 
@@ -539,10 +650,12 @@ def numpy_eigen(A,l,u):
     
 def main():
 
-    # A=mt.random_sparse(1600,1e-3)
-    A=mt.digaonal_dominant(100,1e-3)
-    # A=mt.diagonal_clustered(1600)
+    # A=mt.random_sparse(100,1e-3)
+    # A=mt.digaonal_dominant(100,1e-3)
+    # A=mt.diagonal_clustered(100)
     # numpy_eigen(A,96,100)
+    # A=mt.digaonal_well_seperated(100)
+    A=mt.symmetric_sparse(100)
 
     # A=np.array([[0,2],[2,3]])
     # B=mt.symmetric_sparse(1000)
@@ -559,11 +672,11 @@ def main():
     # power_iteration(A,maxiter=8,tol=1e-5, calc_min=True)
     # power_iteration(A,maxiter=8,tol=1e-5, calc_min=False)
     
-    numpy_eigen(A,99,100)
-    power_iteration(A)
-    # power_iteration(A,use_inverse=False)
-    power_iteration(A,use_rayleigh=True, maxiter=400)
-    # power_iteration(A,use_inverse=False,use_rayleigh=True)
+    # numpy_eigen(A,99,100)
+    # power_iteration(A)
+    # power_iteration(A, use_inverse=False)
+    # power_iteration(A, use_rayleigh=True, maxiter=400)
+    # power_iteration(A, use_inverse=False, use_rayleigh=True)
 
     # davidson_4(A,maxiter=200,tol=1e-5,n_eigen=4,jacobi=True)
     # davidson_1(A)
@@ -576,11 +689,37 @@ def main():
     # power_iteration(A,1./max,calc_min=True)
 
 
-    # numpy_eigen(A,0,1)
-    # power_iteration(A,calc_min=True)
-    # power_iteration(A,calc_min=True,use_inverse=False)
-    # power_iteration(A,calc_min=True,use_rayleigh=True, maxiter=400)
-    # power_iteration(A,calc_min=True,use_inverse=False,use_rayleigh=True)
+    numpy_eigen(A,0,1)
+    power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='2',use_rayleigh=True)
+    power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=True)
+
+    power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='2',use_rayleigh=False)
+    power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=False)
+    rayleigh_quotient_iteration(A,epsilon=1e-4)
+
+    power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='2',use_rayleigh=True)
+    power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=True)
+
+    power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='2',use_rayleigh=False)
+    power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=False)
+
+
+
+    
+    numpy_eigen(A,99,100)
+    power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='2',use_rayleigh=True)
+    power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=True)
+
+    power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='2',use_rayleigh=False)
+    power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=False)
+    rayleigh_quotient_iteration(A,epsilon=1e-4)
+
+    power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='2',use_rayleigh=True)
+    power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=True)
+
+    power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='2',use_rayleigh=False)
+    power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=False)
+
 
 
 
