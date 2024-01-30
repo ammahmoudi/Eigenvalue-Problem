@@ -14,6 +14,7 @@ import scipy.linalg as la
 from scipy.sparse import linalg as lin
 from scipy.sparse.linalg import inv as spinv
 import pdb,time,warnings
+np.seterr(all='raise')
 
 #logging
 import datetime
@@ -25,15 +26,77 @@ log_format = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS zz}</green> | <level>{level: 
 log_path=".\logs\log-"+str(datetime.datetime.now()).replace(" ","-").replace(".","-").replace(":","-")+".log"
 logger.add(log_path, level="TRACE", format=log_format, colorize=False, backtrace=True, diagnose=True)
 
-def block_power_method(A, k, tol=1e-6, max_iter=100):
+
+
+# Lanczos algorithm
+def lanczos_1(A, v0=None,maxiter=None):
+    #https://github.com/zachtheyek/Lanczos-Algorithm
+    #np.set_printoptions(precision=3, suppress=True)
+    start_time=time.time()
+    # First iteration steps
+    x, y = [], []
+    n = A.shape[0]
+    if maxiter is None:maxiter=n
+    v0 = np.random.random((n, 1))
+    v1, beta = 0.0, 0.0
+
+    for i in range(maxiter):
+        # Iteration steps
+        w_prime = np.dot(A, v0)
+        conj = np.matrix.conjugate(w_prime)
+        alpha = np.dot(conj, v0)
+        w = w_prime - alpha * v0 - beta * v1
+        beta = np.linalg.norm(w)
+        x.append(np.linalg.norm(alpha))
+
+        # Reset
+        if i < (maxiter-1):
+            y.append(beta)
+        v1 = v0
+        v0 = w/beta
+    end_time=time.time()
+    eigen_values, eigen_vectors=np.eig(mt.tridiag(y, x, y))
+
+    logger.success('Lancsoz Method '+ str(np.sort(eigen_values[0]))+'; time = '+str(end_time-start_time)+ " seconds.")
+
+    return eigen_values,eigen_vectors,end_time-start_time, maxiter
+def lanczos_2(A, maxiter=None):
+    #https://github.com/oseledets/nla2018
+
+    start_time=time.time()
+    n = A.shape[0]
+    if maxiter is None:maxiter=n
+
+    v = np.random.random((n, 1))
+    v = v / np.linalg.norm(v)
+    v_old = np.zeros((n, 1))
+    beta = np.zeros(maxiter)
+    alpha = np.zeros(maxiter)
+    for j in range(maxiter-1):
+        w = A.dot(v)
+        alpha[j] = w.T.dot(v)
+        w = w - alpha[j] * v - beta[j] * v_old
+        beta[j+1] = np.linalg.norm(w)
+        v_old = v.copy()
+        v = w / beta[j+1]
+    w = A.dot(v)
+    alpha[maxiter-1] = w.T.dot(v)
+    A = np.diag(beta[1:], k=-1) + np.diag(beta[1:], k=1) + np.diag(alpha[:], k=0)
+    eigen_values, eigen_vectors = np.linalg.eigh(A)
+    end_time=time.time()
+    logger.success('Lancsoz Method '+ str(np.sort(eigen_values[0]))+'; time = '+str(end_time-start_time)+ " seconds.")
+    return eigen_values,eigen_vectors,end_time-start_time, maxiter
+
+def block_power_method(A, k, tol=1e-6, maxiter=100):
     # A is a symmetric matrix
     # k is the number of smallest eigenvalues and eigenvectors to find
     # tol is the tolerance for convergence
-    # max_iter is the maximum number of iterations
+    # maxiter is the maximum number of iterations
     
     # Get the dimension of A
     n = A.shape[0]
-    
+    residauls=[]
+    approx_egien_values=[]
     # Check if k is valid
     if k < 1 or k > n:
         print("Invalid value of k")
@@ -52,7 +115,7 @@ def block_power_method(A, k, tol=1e-6, max_iter=100):
     iter = 0
     
     # Loop until convergence or maximum iterations
-    while iter < max_iter:
+    while iter < maxiter:
         # Perform the matrix multiplication AQ
         Z = A @ Q
         
@@ -65,7 +128,12 @@ def block_power_method(A, k, tol=1e-6, max_iter=100):
         lambdas_new = np.diag(Lambda)
         
         # Check the relative change of eigenvalues
-        if np.linalg.norm(lambdas - lambdas_new) < tol:
+        diff=lambdas - lambdas_new
+        res=np.linalg.norm(diff)
+        approx_egien_values.append(lambdas_new)
+        residauls.append(res)
+        if  res < tol:
+            logger.info('Block power method converged at iteration number = '+ str(iter))
             # Converged
             break
         
@@ -82,12 +150,13 @@ def block_power_method(A, k, tol=1e-6, max_iter=100):
     logger.success("Block Power method  = "+ str(lambdas)+"; time = "+str(end_time-start_time)+" seconds.")
 
     # Return the eigenvalues and eigenvectors
-    return lambdas, Q
+    return lambdas, Q, end_time-start_time, iter,residauls,approx_egien_values
 
-def subspace_iteration(A, k=1, Y0=None, maxiter=100):
+def subspace_iteration_1(A, k=1, Y0=None, maxiter=100,tol=1e-6):
     start_time=time.time()
     n=A.shape[0]
-
+    residauls=[]
+    approx_egien_values=[]
     if Y0 is None:
         Y0 = np.random.random((n, k))
 
@@ -95,10 +164,17 @@ def subspace_iteration(A, k=1, Y0=None, maxiter=100):
     Y = Y0.copy()
     Y_old = Y0.copy()
     err = []
-    for i in range(maxiter):
+    i=0
+    while i<maxiter:
         B = A.dot(Y)
         Y, E = np.linalg.qr(B)
-        err.append(np.linalg.norm(Y_old - Y.dot(Y.T.dot(Y_old))))
+        error=np.linalg.norm(Y_old - Y.dot(Y.T.dot(Y_old)))
+        residauls.append(error)
+        approx_egien_values.append(Y)
+        i+=1
+        if(error<tol):
+            logger.info('Subspace_1 converged at iteration number = '+ str(i))
+            break
         Y_old = Y.copy()
         end_time=time.time()
 
@@ -106,9 +182,10 @@ def subspace_iteration(A, k=1, Y0=None, maxiter=100):
 
     logger.success("Subspace iteration = "+ str(np.diag(E))+"; time = "+str(end_time-start_time)+" seconds.")
 
-    return Y, B, err
+    return Y, B,end_time-start_time, i,residauls,approx_egien_values
 
 def subspace_iteration_2(A, k=1, V0=None, maxiter=1000,tol=1e-4):
+
     start_time=time.time()
     n=A.shape[0]
 
@@ -117,15 +194,17 @@ def subspace_iteration_2(A, k=1, V0=None, maxiter=1000,tol=1e-4):
 
     V=V0
     residuals = []
+    approx_egien_values=[]
     err=100
     i=0
-    while err>tol:
+    while i<maxiter:
         B = A.dot(V)
         Q, R = np.linalg.qr(B)
         V=Q[:, :k]
         E=R[:k, :]
         err=np.linalg.norm(A.dot(V)-V.dot(E))
         residuals.append(err)
+        approx_egien_values.append(np.diag(E))
         i+=1
         if(err<tol): 
             logger.info('Subspace_2 converged at iteration number = '+ str(i))
@@ -136,9 +215,9 @@ def subspace_iteration_2(A, k=1, V0=None, maxiter=1000,tol=1e-4):
 
     logger.success("Subspace iteration_2 = "+ str(np.diag(E))+"; time = "+str(end_time-start_time)+" seconds.")
 
-    return E, V, residuals
+    return E, V,end_time-start_time,i, residuals, approx_egien_values
 
-def rayleigh_quotient_iteration(A, epsilon=1e-10, rcoeff=0, B=None):
+def rayleigh_quotient_iteration(A, tol=1e-10, rcoeff=0, B=None):
     n=A.shape[0]
     residuals=[]
 
@@ -169,7 +248,7 @@ def rayleigh_quotient_iteration(A, epsilon=1e-10, rcoeff=0, B=None):
     err = la.norm(C - lambda_ * B) / la.norm(C)
     residuals.append(err)
     j=0
-    while err > epsilon:
+    while err > tol:
         j+=1
         B = C / la.norm(C)
         try:
@@ -189,16 +268,16 @@ def rayleigh_quotient_iteration(A, epsilon=1e-10, rcoeff=0, B=None):
         rcoeff = rcoeff + 1 / lambda_
         err = la.norm(C - lambda_ * B) / la.norm(C)
     
-    logger.info('Power iteration converged at iteration number = '+ str(j))
+    logger.info('Rayleigh Quotient Iteration converged at iteration number = '+ str(j))
     # approx=np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
     end_time=time.time()
 
     # logger.success(' Reigh iteration '+ str(approx)+'; time = '+str(end_time-start_time)+ " seconds.")
-    logger.success(' Reigh iteration '+ str(rcoeff)+'; time = '+str(end_time-start_time)+ " seconds.")
+    logger.success('Rayleigh Quotient Iteration = '+ str(rcoeff)+'; time = '+str(end_time-start_time)+ " seconds.")
 
     return rcoeff,B,residuals
 
-def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,use_inverse=True,Sigma=0,norm_c_mode='2'):
+def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,use_inverse=True,Sigma=0,norm_c_mode='2',output_approx_instead_of_residuals=False):
     '''
     Power iteration is used to find the highest eigenvalue one at a time.
     https://github.com/sreeganb/davidson_algorithm/
@@ -217,6 +296,7 @@ def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,u
         method_name='Power iteration: use_inverse = {}, use_rayleigh = {}, norm_c_mode = {}'.format(use_inverse, use_rayleigh, norm_c_mode)
     n=A.shape[0]
     residuals=[]
+    approx_egien_values=[]
     A_orginal=A.copy()
     start_time = time.time()
     A_Sigma=A_orginal-Sigma*np.eye(n)
@@ -260,16 +340,29 @@ def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,u
                     try:
                         C=la.solve(A_Sigma-rcoeff*np.eye(n),B)
 
-                    except la.LinAlgError as exc:
+                    except (la.LinAlgError, la.LinAlgWarning) as exc:
                         # logger.exception(exc)
                         logger.warning("la.solve failed. Trying to use la_factor and la_solve.")
                         try:
-                            LU, piv = lu_factor(A_Sigma-rcoeff*np.eye(n))
-                            C=lu_solve((LU,piv),B)
-                        except np.linalg.LinAlgError as exc:
+                            LU, piv = la.lu_factor(A_Sigma-rcoeff*np.eye(n))
+                            C=la.lu_solve((LU,piv),B)
+                            if(np.any(C==None) or np.any(C==np.inf)):
+                                logger.warning("lu_solve and lu_factor failed. please try use_inverse")
+                                A_new=A_Sigma-rcoeff*np.eye(n)
+                                try :
+                                    A_new=np.linalg.inv(A_new)
+                                except np.linalg.LinAlgError as exc:
+                                    
+                                    # logger.exception(exc)
+                                    logger.warning("Matrix is singuar. Trying to use psudo inverse of A_new. Also you can turn off use_inverse flag for using lu_factor and lu_solver to solve the linear system. ")
+                                    A_new=np.linalg.pinv(A_new)
+                                C =  np.dot(A_new,B)  if use_rayleigh else np.dot(A,B)
+                                
+                        except (la.LinAlgError, la.LinAlgWarning)  as exc:
                             # logger.exception(exc)
                             logger.warning("lu_solve and lu_factor failed. please try use_inverse")
-                            raise exc
+                            # raise exc
+                    
 
                 
                 else:    
@@ -306,12 +399,17 @@ def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,u
             else:
                 diff = abs(norm_mat[1] - norm_mat[0])
             residuals.append(diff)
+            if output_approx_instead_of_residuals:
+                approx = 1/norm_c if (calc_min and not use_inverse and norm_c_mode=='max_abs') else np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
+                if calc_min and use_inverse: approx=1./approx
+                approx += Sigma
+                approx_egien_values.append(approx)
             if diff < tol:
                 logger.info('Power iteration converged at iteration number = '+ str(j))
                 break
             else:
                 continue
-
+  
     approx = 1/norm_c if (calc_min and not use_inverse and norm_c_mode=='max_abs') else np.dot(B.T,np.dot(A,B))/np.linalg.norm(B)
     if calc_min and use_inverse: approx=1./approx
     approx += Sigma
@@ -326,8 +424,9 @@ def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,u
     diff = (w[0] if calc_min else w[-1])- approx
     logger.trace('exact eigenvalue='+(str(w[0]) if calc_min else str(w[-1])))
     logger.trace('Residual = '+ str(diff))
-
-    return approx,B,residuals
+    if output_approx_instead_of_residuals: return approx,B,end_time-start_time,j,residuals,approx_egien_values
+    else:
+        return approx,B,end_time-start_time,j,residuals
 
 
 def davidson_1(A,v0=None,tol=1e-10,maxiter=1000):
@@ -345,7 +444,7 @@ def davidson_1(A,v0=None,tol=1e-10,maxiter=1000):
     '''
 
 
-    start_davidson = time.time() 
+    start_time = time.time() 
     N=A.shape[0]
     # A=A.tocsr()
     DA_diag=A.diagonal()
@@ -382,12 +481,12 @@ def davidson_1(A,v0=None,tol=1e-10,maxiter=1000):
         gg=[[G,V.T.conj().dot(Av)],[Av.T.conj().dot(V),Av.T.conj().dot(z)]]
         G=np.bmat([[G,V.T.conj().dot(Av)],[Av.T.conj().dot(V),Av.T.conj().dot(z)]])
         V=np.concatenate([V,z],axis=1)
-    end_davidson = time.time()
+    end_time = time.time()
 
        # End of block Davidson. Print results.
 
     logger.success("davidson_1 = "+ str(theta)+"; time = "+
-        str(end_davidson - start_davidson)+ " seconds.")
+        str(end_time - start_time)+ " seconds.")
     
 
     return theta,u
@@ -408,36 +507,36 @@ def davidson_2(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
     residuals=[]
     # Begin block Davidson routine
 
-    start_davidson = time.time()
+    start_time = time.time()
 
-    for m in range(k,maxiter,k):
-        if m <= k:
+    for maxiter in range(k,maxiter,k):
+        if maxiter <= k:
             for j in range(0,k):
                 V[:,j] = t[:,j]/np.linalg.norm(t[:,j])
             theta_old = 1 
-        elif m > k:
+        elif maxiter > k:
             theta_old = theta[:n_eigen]
-        V[:,:m],R = np.linalg.qr(V[:,:m])
-        T = np.dot(V[:,:m].T,np.dot(A,V[:,:m]))
+        V[:,:maxiter],R = np.linalg.qr(V[:,:maxiter])
+        T = np.dot(V[:,:maxiter].T,np.dot(A,V[:,:maxiter]))
         THETA,S = np.linalg.eig(T)
         idx = THETA.argsort()
         theta = THETA[idx]
         s = S[:,idx]
         for j in range(0,k):
-            w = np.dot((A - theta[j]*I),np.dot(V[:,:m],s[:,j]))
+            w = np.dot((A - theta[j]*I),np.dot(V[:,:maxiter],s[:,j]))
             q = w/(theta[j]-A[j,j])
-            V[:,(m+j)] = q
+            V[:,(maxiter+j)] = q
         norm = np.linalg.norm(theta[:n_eigen] - theta_old)
         residuals.append(norm)
         if norm < tol:
             break
 
-    end_davidson = time.time()
+    end_time = time.time()
 
     # End of block Davidson. Print results.
 
     logger.success("davidson_2 = "+ str(theta[:n_eigen])+"; time = "+
-       str(end_davidson - start_davidson)+" seconds.")
+       str(end_time - start_time)+" seconds.")
     return theta[:n_eigen], s[:n_eigen],residuals
 def davidson_3(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
     '''
@@ -468,14 +567,14 @@ def davidson_3(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
     #-------------------------------------------------------------------------------
     start = time.time()
     iter = 0
-    for m in range(k,maxiter,k):
+    for maxiter in range(k,maxiter,k):
         iter = iter + 1
         # logger.trace("Iteration no:"+ str(iter))
         if iter==1:  # for first iteration add normalized guess vectors to matrix v
-            for l in range(m):
-                v[:,l] = t[:,l]/(np.linalg.norm(t[:,l]))
+            for eigen_values in range(maxiter):
+                v[:,eigen_values] = t[:,eigen_values]/(np.linalg.norm(t[:,eigen_values]))
         # Matrix-vector products, form the projected Hamiltonian in the subspace
-        T = np.linalg.multi_dot([v[:,:m].T,A,v[:,:m]]) # selects fastest evaluation order
+        T = np.linalg.multi_dot([v[:,:maxiter].T,A,v[:,:maxiter]]) # selects fastest evaluation order
         w, vects = np.linalg.eig(T) # Diagonalize the subspace Hamiltonian
         j = 0
         s = w.argsort()
@@ -484,16 +583,16 @@ def davidson_3(A,k=None,n_eigen=1,tol=1e-10,maxiter=1000):
         # For each eigenvector of T build a Ritz vector, precondition it and check
         # if the norm is greater than a set threshold.
         #***************************************************************************
-        for i in range(m): #for each new eigenvector of T
+        for i in range(maxiter): #for each new eigenvector of T
             f = np.diag(1./ np.diag((np.diag(np.diag(A)) - w[i]*I)))
     #        logger.trace(f)
-            ritz[:,i] = np.dot(f,np.linalg.multi_dot([(A-w[i]*I),v[:,:m],vects[:,i]]))
+            ritz[:,i] = np.dot(f,np.linalg.multi_dot([(A-w[i]*I),v[:,:maxiter],vects[:,i]]))
             if np.linalg.norm(ritz[:,i]) > 1e-7 :
                 ritz[:,i] = ritz[:,i]/(np.linalg.norm(ritz[:,i]))
-                v[:,m+j] = ritz[:,i]
+                v[:,maxiter+j] = ritz[:,i]
                 j = j + 1
-        q, r = np.linalg.qr(v[:,:m+j-1])
-        for kk in range(m+j-1):
+        q, r = np.linalg.qr(v[:,:maxiter+j-1])
+        for kk in range(maxiter+j-1):
             v[:,kk] = q[:,kk]
         # for i in range(n_eigen):
         #     logger.trace(ss[i])
@@ -530,7 +629,7 @@ def jacobi_correction(uj,A,thetaj):
 
     w = np.dot(Pj,np.dot((A-thetaj*I),Pj))
     return np.linalg.solve(w,rj)
-def davidson_4(A, n_eigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitian=False,hamiltonian=False):
+def davidson_4(A, n_eigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitian=False,hamiltonian=False,output_approx_instead_of_residuals=False):
     """Davidosn solver for eigenvalue problem
     https://github.com/NLESC-JCER/DavidsonPython/tree/master
 
@@ -550,7 +649,8 @@ def davidson_4(A, n_eigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitia
     I = np.eye(n)           # identity matrix same dimen as A
     Adiag = np.diag(A)
     residuals=[]
-    start_davidson = time.time()
+    approx_egien_values=[]
+    start_time = time.time()
 
     V = get_initial_guess(A,k)
     
@@ -567,7 +667,8 @@ def davidson_4(A, n_eigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitia
 
     # Begin block Davidson routine
     # logger.trace("iter size norm"+str(tol))
-    for i in range(maxiter):
+    i=0
+    while i<maxiter:
     
         # QR of V t oorthonormalize the V matrix
         # this uses GrahmShmidtd in the back
@@ -605,48 +706,58 @@ def davidson_4(A, n_eigen=1, tol=1E-6, maxiter = 1000, jacobi=False,non_hermitia
             norm[_j] = np.linalg.norm(res)
 
             # correction vector
-            if(jacobi):
+            if jacobi:
             	delta = jacobi_correction(q[:,j],A,theta[j])
             else:
-            	delta = res / (theta[j]-Adiag+1E-16)
+                # print(res)
+                # print(theta[j])
+                delta = res / (theta[j]-Adiag+1E-16)
                 #C = inv_approx_0 + theta[j]*I
                 #delta = -np.dot(C,res)
+            # print(delta)
 
-            delta /= np.linalg.norm(delta)
+            if(np.all(delta!=0)):delta /= np.linalg.norm(delta)
 
             # expand the basis
             V = np.hstack((V,delta.reshape(-1,1)))
 
-        # comute the norm to se if eigenvalue converge
+        # comute the norm to see if eigenvalue converge
         # logger.trace(str(i)+" "+str(V.shape[1])+" "+ str(np.max(norm)))
         residuals.append(np.max(norm))
+        if output_approx_instead_of_residuals:
+            if not hamiltonian: ind0=0
+            approx_egien_values.append(theta[ind0:ind0+n_eigen])
+        i+=1
+        
         if np.all(norm < tol):
             logger.info("Davidson_4 has converged in iteration number = "+str(i))
             break
-    end_davidson = time.time()
+    end_time = time.time()
     if not hamiltonian: ind0=0
-    logger.success("davidson_4 = "+ str(theta[ind0:n_eigen+ind0])+"; time = "+str(end_davidson-start_davidson)+" seconds.")
+    logger.success("Davidson_4 = "+ str(theta[ind0:n_eigen+ind0])+"; time = "+str(end_time-start_time)+" seconds.")
 
-
-    return theta[ind0:ind0+n_eigen], q[:,ind0:ind0+n_eigen],residuals
+    if output_approx_instead_of_residuals:
+        return theta[ind0:ind0+n_eigen], q[:,ind0:ind0+n_eigen],end_time-start_time,i,residuals,approx_egien_values
+    else:
+        return theta[ind0:ind0+n_eigen], q[:,ind0:ind0+n_eigen],end_time-start_time,i,residuals
 def numpy_eigen(A,l,u):
       # Begin Numpy diagonalization of A
 
-    start_numpy = time.time()
+    start_time = time.time()
 
     E,Vec = np.linalg.eig(A)
     idx=np.argsort(E)
 
 
-    end_numpy = time.time()
+    end_time = time.time()
     E = E[idx]
     Vec=Vec[idx]
 
     # End of Numpy diagonalization. Print results.
 
     logger.success("numpy = "+ str(E[l:u])+"; time = "+
-       str(end_numpy - start_numpy) + " seconds")
-    return E[l:u],Vec[l:u],np.zeros((A.shape[0], abs(l-u)))
+       str(end_time - start_time) + " seconds")
+    return E[l:u],Vec[l:u],end_time - start_time,0,np.zeros((A.shape[0], abs(l-u))),E[l:u]
     
 def main():
 
@@ -695,7 +806,7 @@ def main():
 
     power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='2',use_rayleigh=False)
     power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=False)
-    rayleigh_quotient_iteration(A,epsilon=1e-4)
+    rayleigh_quotient_iteration(A,tol=1e-4)
 
     power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='2',use_rayleigh=True)
     power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=True)
@@ -712,7 +823,7 @@ def main():
 
     power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='2',use_rayleigh=False)
     power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=False)
-    rayleigh_quotient_iteration(A,epsilon=1e-4)
+    rayleigh_quotient_iteration(A,tol=1e-4)
 
     power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='2',use_rayleigh=True)
     power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=True)
