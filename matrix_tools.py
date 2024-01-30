@@ -22,8 +22,8 @@ def digaonal_dominant(n,sparsity=1E-4):
     
     A = np.zeros((n,n))
     for i in range(0,n):
-        # A[i,i] = 1E3*np.random.rand() 
-        A[i,i] = i+1
+        A[i,i] = 1E3*np.random.rand() 
+        # A[i,i] = i+1
     A = A + sparsity*np.random.randn(n,n) 
     A = (A.T + A)/2 
     return A
