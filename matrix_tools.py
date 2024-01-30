@@ -1,5 +1,9 @@
 import numpy as np
 
+# Function to tri-diagonalize a matrix
+def tridiag(a, b, c, k1=-1, k2=0, k3=1):
+  return np.diag(a, k1) + np.diag(b, k2) + np.diag(c, k3)
+
 
 def digaonal_well_seperated(n):
     A = np.diag(1./(1. + np.arange(n))) # diagonal matrix with well-separated maximum eigenvalues
