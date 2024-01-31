@@ -170,7 +170,7 @@ def subspace_iteration_1(A, k=1, Y0=None, maxiter=100,tol=1e-6):
         Y, E = np.linalg.qr(B)
         error=np.linalg.norm(Y_old - Y.dot(Y.T.dot(Y_old)))
         residauls.append(error)
-        approx_egien_values.append(Y)
+        approx_egien_values.append(np.diag(E))
         i+=1
         if(error<tol):
             logger.info('Subspace_1 converged at iteration number = '+ str(i))
@@ -182,7 +182,7 @@ def subspace_iteration_1(A, k=1, Y0=None, maxiter=100,tol=1e-6):
 
     logger.success("Subspace iteration = "+ str(np.diag(E))+"; time = "+str(end_time-start_time)+" seconds.")
 
-    return Y, B,end_time-start_time, i,residauls,approx_egien_values
+    return np.diag(E), Y,end_time-start_time, i,residauls,approx_egien_values
 
 def subspace_iteration_2(A, k=1, V0=None, maxiter=1000,tol=1e-4):
 
@@ -280,7 +280,7 @@ def rayleigh_quotient_iteration(A, tol=1e-10, rcoeff=0, B=None):
 def power_iteration(A,tol=1e-10,maxiter=1000,use_rayleigh=False,calc_min=False,use_inverse=True,Sigma=0,norm_c_mode='2',output_approx_instead_of_residuals=False):
     '''
     Power iteration is used to find the highest eigenvalue one at a time.
-    https://github.com/sreeganb/davidson_algorithm/
+  
 
     '''
     # if(use_rayleigh and not calc_min):
@@ -800,36 +800,41 @@ def main():
     # power_iteration(A,1./max,calc_min=True)
 
 
-    numpy_eigen(A,0,1)
-    power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='2',use_rayleigh=True)
-    power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=True)
+    # numpy_eigen(A,0,1)
+    # power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='2',use_rayleigh=True)
+    # power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=True)
 
-    power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='2',use_rayleigh=False)
-    power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=False)
-    rayleigh_quotient_iteration(A,tol=1e-4)
+    # power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='2',use_rayleigh=False)
+    # power_iteration(A,calc_min=True,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=False)
+    # rayleigh_quotient_iteration(A,tol=1e-4)
 
-    power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='2',use_rayleigh=True)
-    power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=True)
+    # power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='2',use_rayleigh=True)
+    # power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=True)
 
-    power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='2',use_rayleigh=False)
-    power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=False)
+    # power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='2',use_rayleigh=False)
+    # power_iteration(A,calc_min=True,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=False)
 
 
 
     
-    numpy_eigen(A,99,100)
-    power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='2',use_rayleigh=True)
-    power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=True)
+    nr=numpy_eigen(A,99,100)
+    print(nr[1])
+    r=subspace_iteration_1(A,k=1,maxiter=100)
+    print(r[1].T)
+    print(nr[1]-r[1].T)
+    
+    # power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='2',use_rayleigh=True)
+    # power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=True)
 
-    power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='2',use_rayleigh=False)
-    power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=False)
-    rayleigh_quotient_iteration(A,tol=1e-4)
+    # power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='2',use_rayleigh=False)
+    # power_iteration(A,calc_min=False,use_inverse=True,norm_c_mode='max_abs',use_rayleigh=False)
+    # rayleigh_quotient_iteration(A,tol=1e-4)
 
-    power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='2',use_rayleigh=True)
-    power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=True)
+    # power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='2',use_rayleigh=True)
+    # power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=True)
 
-    power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='2',use_rayleigh=False)
-    power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=False)
+    # power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='2',use_rayleigh=False)
+    # power_iteration(A,calc_min=False,use_inverse=False,norm_c_mode='max_abs',use_rayleigh=False)
 
 
 
