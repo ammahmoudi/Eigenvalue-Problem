@@ -48,8 +48,8 @@ The performance and accuracy of the implementation are tested, and the results a
 
 ## Results
 
-![Smallest Eigenvalue Problem Real Residuals](smallest_real_diff.svg)
-![Smallest Eigenvalue Problem Residuals](smallest_residuals.svg)
-![Biggest Eigenvalue Problem Real Residuals](biggest_real_diff.svg)
-![Biggest Eigenvalue Problem Residuals](biggest_residuals.svg)
+![Smallest Eigenvalue Problem Real Residuals](/smallest_real_diff.svg)
+![Smallest Eigenvalue Problem Residuals](/smallest_residuals.svg)
+![Biggest Eigenvalue Problem Real Residuals](/biggest_real_diff.svg)
+![Biggest Eigenvalue Problem Residuals](/biggest_residuals.svg)
 
